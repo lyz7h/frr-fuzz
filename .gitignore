@@ -117,3 +117,9 @@ refix
 /test-suite.log
 pceplib/test/*.log
 pceplib/test/*.trs
+
+### fuzzing data
+
+**/profraw/
+**/crashes_and_corpus/
+**/fuzz.log
