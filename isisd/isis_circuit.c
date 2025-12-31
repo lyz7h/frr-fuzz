@@ -102,7 +102,7 @@ struct isis_circuit *isis_circuit_new(struct interface *ifp, const char *tag)
 	/*
 	 * Default values
 	 */
-#ifndef FABRICD
+#if !defined(FABRICD) && !defined(FUZZING)
 	circuit->is_type_config = yang_get_default_enum(
 		"/frr-interface:lib/interface/frr-isisd:isis/circuit-type");
 	circuit->flags = 0;
@@ -142,7 +142,7 @@ struct isis_circuit *isis_circuit_new(struct interface *ifp, const char *tag)
 		circuit->level_arg[i].level = i + 1;
 		circuit->level_arg[i].circuit = circuit;
 	}
-#else
+#else /* FABRICD || FUZZING */
 	circuit->is_type_config = IS_LEVEL_1_AND_2;
 	circuit->flags = 0;
 	circuit->pad_hellos = ISIS_HELLO_PADDING_ALWAYS;

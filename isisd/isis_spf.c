@@ -381,20 +381,26 @@ static void _isis_spftree_del(struct isis_spftree *spftree)
 	hash_clean_and_free(&spftree->prefix_sids, NULL);
 	isis_zebra_rlfa_unregister_all(spftree);
 	isis_rlfa_list_clear(spftree);
-	list_delete(&spftree->lfa.remote.pc_spftrees);
+	if (spftree->lfa.remote.pc_spftrees)
+		list_delete(&spftree->lfa.remote.pc_spftrees);
 	if (spftree->type == SPF_TYPE_RLFA
 	    || spftree->type == SPF_TYPE_TI_LFA) {
 		isis_spf_node_list_clear(&spftree->lfa.q_space);
 		isis_spf_node_list_clear(&spftree->lfa.p_space);
 	}
 	isis_spf_node_list_clear(&spftree->adj_nodes);
-	list_delete(&spftree->sadj_list);
+	if (spftree->sadj_list)
+		list_delete(&spftree->sadj_list);
 	isis_vertex_queue_free(&spftree->tents);
 	isis_vertex_queue_free(&spftree->paths);
-	isis_route_table_info_free(spftree->route_table->info);
-	isis_route_table_info_free(spftree->route_table_backup->info);
-	route_table_finish(spftree->route_table);
-	route_table_finish(spftree->route_table_backup);
+	if (spftree->route_table && spftree->route_table->info)
+		isis_route_table_info_free(spftree->route_table->info);
+	if (spftree->route_table_backup && spftree->route_table_backup->info)
+		isis_route_table_info_free(spftree->route_table_backup->info);
+	if (spftree->route_table)
+		route_table_finish(spftree->route_table);
+	if (spftree->route_table_backup)
+		route_table_finish(spftree->route_table_backup);
 }
 
 void isis_spftree_del(struct isis_spftree *spftree)
@@ -455,6 +461,7 @@ void spftree_area_del(struct isis_area *area)
 				continue;
 
 			isis_spftree_del(area->spftree[tree][level - 1]);
+			area->spftree[tree][level - 1] = NULL;
 		}
 	}
 }
@@ -2104,17 +2111,20 @@ int _isis_spf_schedule(struct isis_area *area, int level,
 	long tree_diff, diff;
 	int tree;
 
+	/* Early return for unit tests to avoid accessing potentially NULL SPF trees */
+	if (CHECK_FLAG(im->options, F_ISIS_UNIT_TEST))
+		return 0;
+
 	now = monotime(NULL);
 	diff = 0;
 	for (tree = SPFTREE_IPV4; tree < SPFTREE_COUNT; tree++) {
 		spftree = area->spftree[tree][level - 1];
+		if (!spftree)
+			continue;
 		tree_diff = difftime(now - spftree->last_run_monotime, 0);
 		if (tree_diff != now && (diff == 0 || tree_diff < diff))
 			diff = tree_diff;
 	}
-
-	if (CHECK_FLAG(im->options, F_ISIS_UNIT_TEST))
-		return 0;
 
 	assert(diff >= 0);
 	assert(area->is_type & level);

@@ -46,6 +46,7 @@ noinst_HEADERS += \
 	# end
 
 ripd_ripd_LDADD = lib/libfrr.la $(LIBCAP)
+ripd_ripd_LDFLAGS = $(AM_LDFLAGS) $(RIPD_SAN_FLAGS)
 nodist_ripd_ripd_SOURCES = \
 	yang/frr-ripd.yang.c \
 	yang/frr-bfdd.yang.c \

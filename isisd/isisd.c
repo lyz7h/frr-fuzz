@@ -304,9 +304,14 @@ struct isis_area *isis_area_create(const char *area_tag, const char *vrf_name)
 	/*
 	 * Fabricd runs only as level-2.
 	 * For IS-IS, the default is level-1-2
+	 * In fuzzing mode, use default values to avoid YANG dependency
 	 */
 	if (fabricd)
 		area->is_type = IS_LEVEL_2;
+#ifdef FUZZING
+	else if (CHECK_FLAG(im->options, F_ISIS_UNIT_TEST))
+		area->is_type = IS_LEVEL_1_AND_2;
+#endif
 	else
 		area->is_type = yang_get_default_enum(
 			"/frr-isisd:isis/instance/is-type");
@@ -341,7 +346,7 @@ struct isis_area *isis_area_create(const char *area_tag, const char *vrf_name)
 	/*
 	 * Default values
 	 */
-#ifndef FABRICD
+#if !defined(FABRICD) && !defined(FUZZING)
 	enum isis_metric_style default_style;
 
 	area->max_lsp_lifetime[0] = yang_get_default_uint16(
@@ -378,7 +383,7 @@ struct isis_area *isis_area_create(const char *area_tag, const char *vrf_name)
 	area->attached_bit_rcv_ignore = yang_get_default_bool(
 		"/frr-isisd:isis/instance/attach-receive-ignore");
 
-#else
+#else /* FABRICD || FUZZING */
 	area->max_lsp_lifetime[0] = DEFAULT_LSP_LIFETIME;    /* 1200 */
 	area->max_lsp_lifetime[1] = DEFAULT_LSP_LIFETIME;    /* 1200 */
 	area->lsp_refresh[0] = DEFAULT_MAX_LSP_GEN_INTERVAL; /* 900 */

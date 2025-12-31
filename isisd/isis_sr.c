@@ -355,10 +355,15 @@ struct sr_prefix_cfg *isis_sr_cfg_prefix_add(struct isis_area *area,
 	pcfg->algorithm = algorithm;
 
 	/* Pull defaults from the YANG module. */
+#if !defined(FABRICD) && !defined(FUZZING)
 	pcfg->sid_type = yang_get_default_enum(
 		"%s/prefix-sid-map/prefix-sid/sid-value-type", ISIS_SR);
 	pcfg->last_hop_behavior = yang_get_default_enum(
 		"%s/prefix-sid-map/prefix-sid/last-hop-behavior", ISIS_SR);
+#else
+	pcfg->sid_type = SR_SID_VALUE_TYPE_INDEX;
+	pcfg->last_hop_behavior = SR_LAST_HOP_BEHAVIOR_PHP;
+#endif
 
 	/* Mark as node Sid if the prefix is host and configured in loopback */
 	ifp = if_lookup_prefix(prefix, VRF_DEFAULT);
@@ -1256,7 +1261,7 @@ void isis_sr_area_init(struct isis_area *area)
 	srdb->adj_sids = list_new();
 
 	/* Pull defaults from the YANG module. */
-#ifndef FABRICD
+#if !defined(FABRICD) && !defined(FUZZING)
 	srdb->config.enabled = yang_get_default_bool("%s/enabled", ISIS_SR);
 	srdb->config.srgb_lower_bound = yang_get_default_uint32(
 		"%s/label-blocks/srgb/lower-bound", ISIS_SR);
@@ -1266,7 +1271,7 @@ void isis_sr_area_init(struct isis_area *area)
 		"%s/label-blocks/srlb/lower-bound", ISIS_SR);
 	srdb->config.srlb_upper_bound = yang_get_default_uint32(
 		"%s/label-blocks/srlb/upper-bound", ISIS_SR);
-#else
+#else /* FABRICD || FUZZING */
 	srdb->config.enabled = false;
 	srdb->config.srgb_lower_bound = SRGB_LOWER_BOUND;
 	srdb->config.srgb_upper_bound = SRGB_UPPER_BOUND;

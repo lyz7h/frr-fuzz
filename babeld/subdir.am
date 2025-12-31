@@ -47,4 +47,5 @@ clippy_scan += \
 	babeld/babel_interface.c \
 	babeld/babeld.c
 
+babeld_babeld_LDFLAGS = $(AM_LDFLAGS) $(BABELD_SAN_FLAGS)
 babeld_babeld_LDADD = lib/libfrr.la $(LIBCAP)

@@ -66,6 +66,13 @@ DEFINE_HOOK(isis_hook_own_lsp_purge,
 
 
 /*
+ * In fuzzing mode, disable all notifications as YANG context is not initialized.
+ */
+#ifdef FUZZING
+#define ISIS_NOTIF_DISABLED 1
+#endif
+
+/*
  * Helper functions.
  */
 static void notif_prep_instance_hdr(const char *xpath,
@@ -73,6 +80,9 @@ static void notif_prep_instance_hdr(const char *xpath,
 				    const char *routing_instance,
 				    struct list *args)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	char xpath_arg[XPATH_MAXLEN];
 	struct yang_data *data;
 
@@ -92,6 +102,9 @@ static void notif_prepr_iface_hdr(const char *xpath,
 				  const struct isis_circuit *circuit,
 				  struct list *args)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	char xpath_arg[XPATH_MAXLEN];
 	struct yang_data *data;
 
@@ -112,6 +125,9 @@ static void notif_prepr_iface_hdr(const char *xpath,
  */
 void isis_notif_db_overload(const struct isis_area *area, bool overload)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:database-overload";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -131,6 +147,9 @@ void isis_notif_db_overload(const struct isis_area *area, bool overload)
 void isis_notif_lsp_too_large(const struct isis_circuit *circuit,
 			      uint32_t pdu_size, const uint8_t *lsp_id)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:lsp-too-large";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -158,6 +177,9 @@ void isis_notif_lsp_too_large(const struct isis_circuit *circuit,
  */
 void isis_notif_if_state_change(const struct isis_circuit *circuit, bool down)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:if-state-change";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -179,6 +201,9 @@ void isis_notif_if_state_change(const struct isis_circuit *circuit, bool down)
 void isis_notif_corrupted_lsp(const struct isis_area *area,
 			      const uint8_t *lsp_id)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:corrupted-lsp-detected";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -202,6 +227,9 @@ void isis_notif_corrupted_lsp(const struct isis_area *area,
 void isis_notif_lsp_exceed_max(const struct isis_area *area,
 			       const uint8_t *lsp_id)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:attempt-to-exceed-max-sequence";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -226,6 +254,9 @@ void isis_notif_max_area_addr_mismatch(const struct isis_circuit *circuit,
 				       uint8_t max_area_addrs,
 				       const char *raw_pdu, size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:max-area-addresses-mismatch";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -254,6 +285,9 @@ void isis_notif_authentication_type_failure(const struct isis_circuit *circuit,
 					    const char *raw_pdu,
 					    size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:authentication-type-failure";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -278,6 +312,9 @@ void isis_notif_authentication_type_failure(const struct isis_circuit *circuit,
 void isis_notif_authentication_failure(const struct isis_circuit *circuit,
 				       const char *raw_pdu, size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:authentication-failure";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -302,6 +339,9 @@ void isis_notif_authentication_failure(const struct isis_circuit *circuit,
 void isis_notif_adj_state_change(const struct isis_adjacency *adj,
 				 int new_state, const char *reason)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:adjacency-state-change";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -344,6 +384,9 @@ void isis_notif_reject_adjacency(const struct isis_circuit *circuit,
 				 const char *reason, const char *raw_pdu,
 				 size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:rejected-adjacency";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -370,6 +413,9 @@ void isis_notif_reject_adjacency(const struct isis_circuit *circuit,
 void isis_notif_area_mismatch(const struct isis_circuit *circuit,
 			      const char *raw_pdu, size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:area-mismatch";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -394,6 +440,9 @@ void isis_notif_lsp_received(const struct isis_circuit *circuit,
 			     const uint8_t *lsp_id, uint32_t seqno,
 			     uint32_t timestamp, const char *sys_id)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:lsp-received";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -426,6 +475,9 @@ void isis_notif_lsp_received(const struct isis_circuit *circuit,
 void isis_notif_lsp_gen(const struct isis_area *area, const uint8_t *lsp_id,
 			uint32_t seqno, uint32_t timestamp)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:lsp-generation";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -454,6 +506,9 @@ void isis_notif_id_len_mismatch(const struct isis_circuit *circuit,
 				uint8_t rcv_id_len, const char *raw_pdu,
 				size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:id-len-mismatch";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -482,6 +537,9 @@ void isis_notif_version_skew(const struct isis_circuit *circuit,
 			     uint8_t version, const char *raw_pdu,
 			     size_t raw_pdu_len)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:version-skew";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -512,6 +570,9 @@ void isis_notif_lsp_error(const struct isis_circuit *circuit,
 			  __attribute__((unused)) uint32_t offset,
 			  __attribute__((unused)) uint8_t tlv_type)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:lsp-error-detected";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -541,6 +602,9 @@ void isis_notif_lsp_error(const struct isis_circuit *circuit,
 void isis_notif_seqno_skipped(const struct isis_circuit *circuit,
 			      const uint8_t *lsp_id)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:sequence-number-skipped";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];
@@ -566,6 +630,9 @@ void isis_notif_seqno_skipped(const struct isis_circuit *circuit,
 void isis_notif_own_lsp_purge(const struct isis_circuit *circuit,
 			      const uint8_t *lsp_id)
 {
+#ifdef ISIS_NOTIF_DISABLED
+	return;
+#endif
 	const char *xpath = "/frr-isisd:own-lsp-purge";
 	struct list *arguments = yang_data_list_new();
 	char xpath_arg[XPATH_MAXLEN];

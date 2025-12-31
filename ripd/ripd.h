@@ -541,4 +541,10 @@ extern void rip_ecmp_change(struct rip *rip);
 
 extern uint32_t zebra_ecmp_count;
 
+#ifdef FUZZING
+extern void rip_fuzz_process_packet(struct rip *rip, struct rip_packet *packet,
+				     int len, struct sockaddr_in *from,
+				     struct connected *ifc);
+#endif /* FUZZING */
+
 #endif /* _ZEBRA_RIP_H */

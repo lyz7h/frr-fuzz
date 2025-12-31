@@ -30,6 +30,11 @@ Copyright 2011 by Matthieu Boutier and Juliusz Chroboczek
 #include "resend.h"
 #include "babel_zebra.h"
 #include "babel_errors.h"
+#include "message.h"
+
+#ifdef FUZZING
+#include "lib/fuzz.h"
+#endif
 
 static void babel_fail(void);
 static void babel_init_random(void);
@@ -137,10 +142,120 @@ FRR_DAEMON_INFO(babeld, BABELD,
 		.n_yang_modules = array_size(babeld_yang_modules),
 );
 
+#ifdef FUZZING
+
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
+
+static bool FuzzingInit(void)
+{
+	const char *name[] = { "babeld" };
+
+	frr_preinit(&babeld_di, 1, (char **) &name);
+
+	/* INIT */
+	master = frr_init_fast();
+	babel_error_init();
+
+	/* Initialize time */
+	gettime(&babel_now);
+
+	resend_delay = BABEL_DEFAULT_RESEND_DELAY;
+	change_smoothing_half_life(BABEL_DEFAULT_SMOOTHING_HALF_LIFE);
+
+	/* set the Babel's default link-local multicast address and Babel's port */
+	parse_address("ff02:0:0:0:0:0:1:6", protocol_group, NULL);
+	protocol_port = 6696;
+
+	/* init zebra client's structure */
+	babelz_zebra_init();
+
+	/* init buffer */
+	int rc = resize_receive_buffer(1500);
+	if(rc < 0)
+		return false;
+
+	return true;
+}
+
+static struct interface *FuzzingCreateBabel(void)
+{
+	struct interface *ifp = if_get_by_name("fuzziface", 0, "default");
+	struct vrf *vrf = vrf_get(VRF_DEFAULT, VRF_DEFAULT_NAME);
+	ifp->mtu = 1500;
+
+	/* Initialize babel interface info */
+	babel_interface_nfo *babel_ifp = babel_get_if_nfo(ifp);
+	if (!babel_ifp) {
+		/* Allocate babel interface info if not already allocated */
+		/* Use calloc for fuzzing since MTYPE_BABEL_IF is static */
+		babel_ifp = calloc(1, sizeof(babel_interface_nfo));
+		if (!babel_ifp)
+			return NULL;
+		ifp->info = babel_ifp;
+	}
+
+	/* Initialize default values */
+	babel_ifp->flags = BABEL_IF_IS_UP;
+	babel_ifp->hello_interval = 4000; /* 40 seconds in centiseconds */
+	babel_ifp->update_interval = 4000;
+	babel_ifp->cost = 96;
+	babel_ifp->channel = BABEL_IF_CHANNEL_NONINTERFERING;
+	babel_ifp->bucket_time = babel_now.tv_sec;
+	babel_ifp->bucket = BUCKET_TOKENS_MAX;
+	babel_ifp->hello_seqno = 1; /* Use fixed value for fuzzing */
+
+	return ifp;
+}
+
+static struct interface *FuzzingInterface;
+static bool FuzzingInitialized;
+
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+{
+	if (!FuzzingInitialized) {
+		FuzzingInit();
+		FuzzingInitialized = true;
+		FuzzingInterface = FuzzingCreateBabel();
+	}
+
+	struct interface *ifp = FuzzingInterface;
+
+	/* Create a dummy source address (link-local IPv6) */
+	unsigned char from[16] = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+
+	/* Process the packet */
+	parse_packet(from, ifp, data, size);
+
+	return 0;
+}
+#endif
+
+#ifndef FUZZING_LIBFUZZER
 int
 main(int argc, char **argv)
 {
     int rc;
+
+#ifdef FUZZING
+
+	FuzzingInitialized = FuzzingInit();
+	FuzzingInterface = FuzzingCreateBabel();
+
+#ifdef __AFL_HAVE_MANUAL_CONTROL
+	__AFL_INIT();
+#endif
+	uint8_t *input = NULL;
+	int r = frrfuzz_read_input(&input);
+
+	if (r < 0 || !input)
+		goto done;
+
+	LLVMFuzzerTestOneInput(input, r);
+
+	free(input);
+done:
+	return 0;
+#endif
 
     frr_preinit (&babeld_di, argc, argv);
     frr_opt_add ("", longopts, "");
@@ -201,6 +316,7 @@ main(int argc, char **argv)
 
     return 0;
 }
+#endif /* FUZZING_LIBFUZZER */
 
 static void
 babel_fail(void)

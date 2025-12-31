@@ -148,11 +148,35 @@ static void lsp_remove_frags(struct lspdb_head *head, struct list *frags)
 	struct listnode *lnode, *lnnode;
 	struct isis_lsp *lsp;
 
+	if (!frags)
+		return;
+
+	/* Collect all fragments to destroy first, then destroy them.
+	 * This avoids issues when destroying fragments that might modify
+	 * the list we're iterating over.
+	 */
+	struct list *to_destroy = list_new();
+
 	for (ALL_LIST_ELEMENTS(frags, lnode, lnnode, lsp)) {
-		lsp = lsp_search(head, lsp->hdr.lsp_id);
-		lspdb_del(head, lsp);
+		struct isis_lsp *found_lsp;
+		/* Save the lsp pointer from the list before searching */
+		struct isis_lsp *list_lsp = lsp;
+		
+		/* Check if fragment is still in the database before trying to remove it */
+		found_lsp = lsp_search(head, list_lsp->hdr.lsp_id);
+		if (found_lsp && found_lsp == list_lsp) {
+			/* Only remove if it's the same pointer, meaning it's still in the database */
+			lspdb_del(head, found_lsp);
+			listnode_add(to_destroy, found_lsp);
+		}
+	}
+
+	/* Now destroy all collected fragments */
+	for (ALL_LIST_ELEMENTS(to_destroy, lnode, lnnode, lsp)) {
 		lsp_destroy(lsp);
 	}
+
+	list_delete(&to_destroy);
 }
 
 void lsp_search_and_destroy(struct lspdb_head *head, const uint8_t *id)
@@ -2464,3 +2488,4 @@ void lsp_init(void)
 	hook_register(isis_adj_state_change_hook,
 		      lsp_handle_adj_state_change);
 }
+

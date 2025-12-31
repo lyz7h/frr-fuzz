@@ -180,6 +180,11 @@ static int _ptm_msg_address(struct stream *msg, int family, const void *addr)
 int ptm_bfd_notify(struct bfd_session *bs, uint8_t notify_state)
 {
 	struct stream *msg;
+	
+#ifdef FUZZING
+/* Skip zebra notifications in fuzzing mode */
+return 0;
+#endif
 
 	bs->stats.znotification++;
 

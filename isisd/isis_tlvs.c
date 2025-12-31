@@ -1183,6 +1183,11 @@ static int unpack_item_ext_subtlv_asla(uint16_t mtid, uint8_t subtlv_len,
 		subsubtlv_len = stream_getc(s);
 		readable -= ISIS_SUBSUBTLV_HDR_SIZE;
 
+		/* Check if subsubtlv_len would cause out-of-bounds access */
+		if (subsubtlv_len > readable) {
+			TLV_SIZE_MISMATCH(log, indent, "ASLA Sub TLV length");
+			return -1;
+		}
 
 		switch (subsubtlv_type) {
 		case ISIS_SUBTLV_ADMIN_GRP:
@@ -1197,14 +1202,20 @@ static int unpack_item_ext_subtlv_asla(uint16_t mtid, uint8_t subtlv_len,
 			break;
 
 		case ISIS_SUBTLV_EXT_ADMIN_GRP:
-			nb_groups = subsubtlv_len / sizeof(uint32_t);
-			for (size_t i = 0; i < nb_groups; i++) {
-				uint32_t val = stream_getl(s);
+			if (subsubtlv_len % sizeof(uint32_t) != 0) {
+				TLV_SIZE_MISMATCH(log, indent,
+						  "ASLA Extended Admin Group");
+				stream_forward_getp(s, subsubtlv_len);
+			} else {
+				nb_groups = subsubtlv_len / sizeof(uint32_t);
+				for (size_t i = 0; i < nb_groups; i++) {
+					uint32_t val = stream_getl(s);
 
-				admin_group_bulk_set(&asla->ext_admin_group,
-						     val, i);
+					admin_group_bulk_set(&asla->ext_admin_group,
+							     val, i);
+				}
+				SET_SUBTLV(asla, EXT_EXTEND_ADM_GRP);
 			}
-			SET_SUBTLV(asla, EXT_EXTEND_ADM_GRP);
 			break;
 		case ISIS_SUBTLV_MAX_BW:
 			if (subsubtlv_len != ISIS_SUBTLV_DEF_SIZE) {
@@ -4388,7 +4399,15 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 	sbuf_push(log, indent, "Unpacking Router Capability TLV...\n");
 	if (tlv_len < ISIS_ROUTER_CAP_SIZE) {
 		sbuf_push(log, indent, "WARNING: Unexpected TLV size\n");
-		stream_forward_getp(s, tlv_len);
+		/* Limit tlv_len to available stream data to avoid assertion failure */
+		size_t readable = STREAM_READABLE(s);
+		if (tlv_len > readable)
+			tlv_len = readable;
+		if (tlv_len > 0) {
+			/* Use stream_forward_getp2 to avoid assertion in fuzzing */
+			if (!stream_forward_getp2(s, tlv_len))
+				return 1;
+		}
 		return 0;
 	}
 
@@ -4403,6 +4422,16 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 	}
 
 	/* Get Router ID and Flags */
+	/* Check if we have enough data for Router ID (4 bytes) and Flags (1 byte) */
+	if (STREAM_READABLE(s) < 5) {
+		sbuf_push(log, indent,
+			  "WARNING: Not enough data for Router ID and Flags\n");
+		/* Only free rcap if we just allocated it */
+		if (!tlvs->router_cap)
+			XFREE(MTYPE_ISIS_TLV, rcap);
+		return 0;
+	}
+
 	rcap->router_id.s_addr = stream_get_ipv4(s);
 	rcap->flags = stream_getc(s);
 
@@ -4415,6 +4444,13 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 #endif /* ifndef FABRICD */
 		uint8_t msd_type;
 
+		/* Check if we have enough data to read subTLV header */
+		if (STREAM_READABLE(s) < 2) {
+			sbuf_push(log, indent,
+				  "WARNING: Not enough data for subTLV header\n");
+			break;
+		}
+
 		type = stream_getc(s);
 		length = stream_getc(s);
 
@@ -4422,8 +4458,14 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			sbuf_push(
 				log, indent,
 				"WARNING: Router Capability subTLV length too large compared to expected size\n");
-			stream_forward_getp(s, STREAM_READABLE(s));
-			XFREE(MTYPE_ISIS_TLV, rcap);
+			/* Use stream_forward_getp2 to avoid assertion */
+			size_t skip = (STREAM_READABLE(s) > subtlv_len - 2)
+				? (subtlv_len - 2) : STREAM_READABLE(s);
+			if (skip > 0)
+				stream_forward_getp2(s, skip);
+			/* Only free rcap if we just allocated it */
+			if (!tlvs->router_cap)
+				XFREE(MTYPE_ISIS_TLV, rcap);
 			return 0;
 		}
 
@@ -4432,12 +4474,14 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			/* Check that SRGB is correctly formated */
 			if (length < SUBTLV_RANGE_LABEL_SIZE
 			    || length > SUBTLV_RANGE_INDEX_SIZE) {
-				stream_forward_getp(s, length);
+				size_t skip = (length > STREAM_READABLE(s)) ? STREAM_READABLE(s) : length;
+				stream_forward_getp(s, skip);
 				break;
 			}
 			/* Only one SRGB is supported. Skip subsequent one */
 			if (rcap->srgb.range_size != 0) {
-				stream_forward_getp(s, length);
+				size_t skip = (length > STREAM_READABLE(s)) ? STREAM_READABLE(s) : length;
+				stream_forward_getp(s, skip);
 				break;
 			}
 			rcap->srgb.flags = stream_getc(s);
@@ -4448,13 +4492,19 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 
 			if (size == ISIS_SUBTLV_SID_LABEL_SIZE
 			    && length != SUBTLV_RANGE_LABEL_SIZE) {
-				stream_forward_getp(s, length - 6);
+				size_t skip = (length > 6 && (length - 6) > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length > 6 ? length - 6 : 0);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
 				break;
 			}
 
 			if (size == ISIS_SUBTLV_SID_INDEX_SIZE
 			    && length != SUBTLV_RANGE_INDEX_SIZE) {
-				stream_forward_getp(s, length - 6);
+				size_t skip = (length > 6 && (length - 6) > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length > 6 ? length - 6 : 0);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
 				break;
 			}
 
@@ -4463,7 +4513,10 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			} else if (size == ISIS_SUBTLV_SID_INDEX_SIZE) {
 				rcap->srgb.lower_bound = stream_getl(s);
 			} else {
-				stream_forward_getp(s, length - 6);
+				size_t skip = (length > 6 && (length - 6) > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length > 6 ? length - 6 : 0);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
 				break;
 			}
 
@@ -4478,8 +4531,11 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			}
 			/* Only one range is supported. Skip subsequent one */
 			size = length - (size + SUBTLV_SR_BLOCK_SIZE);
-			if (size > 0)
-				stream_forward_getp(s, size);
+			if (size > 0) {
+				size_t skip = (size > STREAM_READABLE(s)) ? STREAM_READABLE(s) : size;
+				if (skip > 0)
+					stream_forward_getp(s, skip);
+			}
 
 			break;
 		case ISIS_SUBTLV_ALGORITHM:
@@ -4500,12 +4556,14 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			/* Check that SRLB is correctly formated */
 			if (length < SUBTLV_RANGE_LABEL_SIZE
 			    || length > SUBTLV_RANGE_INDEX_SIZE) {
-				stream_forward_getp(s, length);
+				size_t skip = (length > STREAM_READABLE(s)) ? STREAM_READABLE(s) : length;
+				stream_forward_getp(s, skip);
 				break;
 			}
 			/* RFC 8667 section #3.3: Only one SRLB is authorized */
 			if (rcap->srlb.range_size != 0) {
-				stream_forward_getp(s, length);
+				size_t skip = (length > STREAM_READABLE(s)) ? STREAM_READABLE(s) : length;
+				stream_forward_getp(s, skip);
 				break;
 			}
 			/* Ignore Flags which are not defined */
@@ -4517,13 +4575,19 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 
 			if (size == ISIS_SUBTLV_SID_LABEL_SIZE
 			    && length != SUBTLV_RANGE_LABEL_SIZE) {
-				stream_forward_getp(s, length - 6);
+				size_t skip = (length > 6 && (length - 6) > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length > 6 ? length - 6 : 0);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
 				break;
 			}
 
 			if (size == ISIS_SUBTLV_SID_INDEX_SIZE
 			    && length != SUBTLV_RANGE_INDEX_SIZE) {
-				stream_forward_getp(s, length - 6);
+				size_t skip = (length > 6 && (length - 6) > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length > 6 ? length - 6 : 0);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
 				break;
 			}
 
@@ -4532,7 +4596,10 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			} else if (size == ISIS_SUBTLV_SID_INDEX_SIZE) {
 				rcap->srlb.lower_bound = stream_getl(s);
 			} else {
-				stream_forward_getp(s, length - 6);
+				size_t skip = (length > 6 && (length - 6) > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length > 6 ? length - 6 : 0);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
 				break;
 			}
 
@@ -4547,14 +4614,18 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			}
 			/* Only one range is supported. Skip subsequent one */
 			size = length - (size + SUBTLV_SR_BLOCK_SIZE);
-			if (size > 0)
-				stream_forward_getp(s, size);
+			if (size > 0) {
+				size_t skip = (size > STREAM_READABLE(s)) ? STREAM_READABLE(s) : size;
+				if (skip > 0)
+					stream_forward_getp(s, skip);
+			}
 
 			break;
 		case ISIS_SUBTLV_NODE_MSD:
 			/* Check that MSD is correctly formated */
 			if (length < MSD_TLV_SIZE) {
-				stream_forward_getp(s, length);
+				size_t skip = (length > STREAM_READABLE(s)) ? STREAM_READABLE(s) : length;
+				stream_forward_getp(s, skip);
 				break;
 			}
 			msd_type = stream_getc(s);
@@ -4563,14 +4634,37 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			if (msd_type != MSD_TYPE_BASE_MPLS_IMPOSITION)
 				rcap->msd = 0;
 			/* Only one MSD is standardized. Skip others */
-			if (length > MSD_TLV_SIZE)
-				stream_forward_getp(s, length - MSD_TLV_SIZE);
+			if (length > MSD_TLV_SIZE) {
+				size_t skip = (length - MSD_TLV_SIZE > STREAM_READABLE(s)) 
+					? STREAM_READABLE(s) : (length - MSD_TLV_SIZE);
+				if (skip > 0)
+					stream_forward_getp(s, skip);
+			}
 			break;
 #ifndef FABRICD
 		case ISIS_SUBTLV_FAD:
+			/* Check if we have enough data for FAD header (4 bytes) */
+			if (STREAM_READABLE(s) < 4) {
+				sbuf_push(log, indent,
+					  "WARNING: Not enough data for FAD header\n");
+				break;
+			}
+
+			/* Read algorithm first to check if FAD already exists */
+			uint8_t algo = stream_getc(s);
+			/* Check if FAD for this algorithm already exists */
+			if (rcap->fads[algo]) {
+				/* Free existing FAD to avoid memory leak */
+				fad = rcap->fads[algo];
+				admin_group_term(&fad->fad.admin_group_exclude_any);
+				admin_group_term(&fad->fad.admin_group_include_any);
+				admin_group_term(&fad->fad.admin_group_include_all);
+				XFREE(MTYPE_ISIS_TLV, fad);
+			}
+
 			fad = XCALLOC(MTYPE_ISIS_TLV,
 				      sizeof(struct isis_router_cap_fad));
-			fad->fad.algorithm = stream_getc(s);
+			fad->fad.algorithm = algo;
 			fad->fad.metric_type = stream_getc(s);
 			fad->fad.calc_type = stream_getc(s);
 			fad->fad.priority = stream_getc(s);
@@ -4579,6 +4673,29 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 			admin_group_init(&fad->fad.admin_group_include_any);
 			admin_group_init(&fad->fad.admin_group_include_all);
 
+			/* Calculate remaining length for sub-subTLVs
+			 * Note: length includes the 4 bytes we just read (algorithm,
+			 * metric_type, calc_type, priority), so we subtract 4
+			 */
+			if (length < 4) {
+				sbuf_push(log, indent,
+					  "WARNING: FAD length %u too short (minimum 4)\n",
+					  length);
+				/* Clean up partially initialized FAD */
+				admin_group_term(&fad->fad.admin_group_exclude_any);
+				admin_group_term(&fad->fad.admin_group_include_any);
+				admin_group_term(&fad->fad.admin_group_include_all);
+				XFREE(MTYPE_ISIS_TLV, fad);
+				rcap->fads[algo] = NULL;
+				/* Skip the remaining bytes if any */
+				if (length > 0 && length < 4) {
+					size_t skip = (4 - length > STREAM_READABLE(s))
+						? STREAM_READABLE(s) : (4 - length);
+					if (skip > 0)
+						stream_forward_getp2(s, skip);
+				}
+				break;
+			}
 			subsubtlvs_len = length - 4;
 			while (subsubtlvs_len > 2) {
 				struct admin_group *ag;
@@ -4587,13 +4704,41 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 				uint32_t v;
 				int n_ag, i;
 
+				/* Check if we have enough data to read sub-subTLV header */
+				if (STREAM_READABLE(s) < 2) {
+					sbuf_push(log, indent,
+						  "WARNING: Not enough data for sub-subTLV header\n");
+					break;
+				}
+
 				subsubtlv_type = stream_getc(s);
 				subsubtlv_len = stream_getc(s);
+
+				/* Check if subsubtlv_len is valid and we have enough data */
+				if (subsubtlv_len > subsubtlvs_len - 2 ||
+				    subsubtlv_len > STREAM_READABLE(s)) {
+					sbuf_push(log, indent,
+						  "WARNING: Invalid sub-subTLV length %u\n",
+						  subsubtlv_len);
+					/* Skip remaining data and update length */
+					size_t skip = (subsubtlvs_len - 2 > STREAM_READABLE(s))
+						? STREAM_READABLE(s) : (subsubtlvs_len - 2);
+					if (skip > 0)
+						stream_forward_getp2(s, skip);
+					subsubtlvs_len = 0; /* Force loop exit */
+					break;
+				}
 
 				switch (subsubtlv_type) {
 				case ISIS_SUBTLV_FAD_SUBSUBTLV_EXCAG:
 					ag = &fad->fad.admin_group_exclude_any;
 					n_ag = subsubtlv_len / sizeof(uint32_t);
+					/* Check if we have enough data for all admin groups */
+					if (n_ag * sizeof(uint32_t) > STREAM_READABLE(s)) {
+						sbuf_push(log, indent,
+							  "WARNING: Not enough data for admin groups\n");
+						break;
+					}
 					for (i = 0; i < n_ag; i++) {
 						v = stream_getl(s);
 						admin_group_bulk_set(ag, v, i);
@@ -4602,6 +4747,12 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 				case ISIS_SUBTLV_FAD_SUBSUBTLV_INCANYAG:
 					ag = &fad->fad.admin_group_include_any;
 					n_ag = subsubtlv_len / sizeof(uint32_t);
+					/* Check if we have enough data for all admin groups */
+					if (n_ag * sizeof(uint32_t) > STREAM_READABLE(s)) {
+						sbuf_push(log, indent,
+							  "WARNING: Not enough data for admin groups\n");
+						break;
+					}
 					for (i = 0; i < n_ag; i++) {
 						v = stream_getl(s);
 						admin_group_bulk_set(ag, v, i);
@@ -4610,6 +4761,12 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 				case ISIS_SUBTLV_FAD_SUBSUBTLV_INCALLAG:
 					ag = &fad->fad.admin_group_include_all;
 					n_ag = subsubtlv_len / sizeof(uint32_t);
+					/* Check if we have enough data for all admin groups */
+					if (n_ag * sizeof(uint32_t) > STREAM_READABLE(s)) {
+						sbuf_push(log, indent,
+							  "WARNING: Not enough data for admin groups\n");
+						break;
+					}
 					for (i = 0; i < n_ag; i++) {
 						v = stream_getl(s);
 						admin_group_bulk_set(ag, v, i);
@@ -4619,13 +4776,24 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 					if (subsubtlv_len == 0)
 						break;
 
+					/* Check if we have enough data */
+					if (STREAM_READABLE(s) < subsubtlv_len) {
+						sbuf_push(log, indent,
+							  "WARNING: Not enough data for FAD flags\n");
+						break;
+					}
+
 					fad->fad.flags = stream_getc(s);
 					for (i = subsubtlv_len - 1; i > 0; --i)
 						stream_getc(s);
 					break;
 				case ISIS_SUBTLV_FAD_SUBSUBTLV_ESRLG:
 					fad->fad.exclude_srlg = true;
-					stream_forward_getp(s, subsubtlv_len);
+					/* Use stream_forward_getp2 to avoid assertion */
+					if (!stream_forward_getp2(s, subsubtlv_len)) {
+						sbuf_push(log, indent,
+							  "WARNING: Failed to skip ESRLG sub-subTLV\n");
+					}
 					break;
 				default:
 					sbuf_push(
@@ -4633,7 +4801,11 @@ static int unpack_tlv_router_cap(enum isis_tlv_context context,
 						"Received an unsupported Flex-Algo sub-TLV type %u\n",
 						subsubtlv_type);
 					fad->fad.unsupported_subtlv = true;
-					stream_forward_getp(s, subsubtlv_len);
+					/* Use stream_forward_getp2 to avoid assertion */
+					if (!stream_forward_getp2(s, subsubtlv_len)) {
+						sbuf_push(log, indent,
+							  "WARNING: Failed to skip unknown sub-subTLV\n");
+					}
 					break;
 				}
 				subsubtlvs_len -= 2 + subsubtlv_len;

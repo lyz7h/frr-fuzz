@@ -427,6 +427,15 @@ void rip_interfaces_clean(struct rip *rip)
 
 static void rip_interface_reset(struct rip_interface *ri)
 {
+#ifdef FUZZING
+	/* Use default values directly in fuzzing mode */
+	ri->auth_type = RIP_NO_AUTH;
+	ri->md5_auth_len = RIP_AUTH_MD5_COMPAT_SIZE;
+	ri->split_horizon = RIP_SPLIT_HORIZON;
+	ri->ri_send = RI_RIP_UNSPEC;
+	ri->ri_receive = RI_RIP_UNSPEC;
+	ri->v2_broadcast = false;
+#else
 	ri->auth_type = yang_get_default_enum("%s/authentication-scheme/mode",
 					      RIP_IFACE);
 	ri->md5_auth_len = yang_get_default_enum(
@@ -442,6 +451,7 @@ static void rip_interface_reset(struct rip_interface *ri)
 	ri->ri_send = yang_get_default_enum("%s/version-send", RIP_IFACE);
 	ri->ri_receive = yang_get_default_enum("%s/version-receive", RIP_IFACE);
 	ri->v2_broadcast = yang_get_default_bool("%s/v2-broadcast", RIP_IFACE);
+#endif /* FUZZING */
 
 	XFREE(MTYPE_RIP_INTERFACE_STRING, ri->auth_str);
 

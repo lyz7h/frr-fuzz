@@ -48,3 +48,4 @@ nodist_bfdd_bfdd_SOURCES = \
 
 bfdd_bfdd_SOURCES = bfdd/bfdd.c
 bfdd_bfdd_LDADD = bfdd/libbfd.a lib/libfrr.la
+bfdd_bfdd_LDFLAGS = $(AM_LDFLAGS) $(BFDD_SAN_FLAGS)

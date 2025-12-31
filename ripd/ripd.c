@@ -2701,6 +2701,18 @@ struct rip *rip_create(const char *vrf_name, struct vrf *vrf, int socket)
 	rip->vrf_name = XSTRDUP(MTYPE_RIP_VRF_NAME, vrf_name);
 
 	/* Set initial value. */
+#ifdef FUZZING
+/* Use default values directly in fuzzing mode */
+rip->ecmp = 0;
+rip->default_metric = 1;
+rip->distance = 120;
+rip->passive_default = false;
+rip->garbage_time = 120;
+rip->timeout_time = 180;
+rip->update_time = 30;
+rip->version_send = RIPv2;
+rip->version_recv = RIPv1 | RIPv2;
+#else
 	rip->ecmp = yang_get_default_uint8("%s/allow-ecmp", RIP_INSTANCE);
 	rip->default_metric =
 		yang_get_default_uint8("%s/default-metric", RIP_INSTANCE);
@@ -2718,6 +2730,7 @@ struct rip *rip_create(const char *vrf_name, struct vrf *vrf, int socket)
 		yang_get_default_enum("%s/version/send", RIP_INSTANCE);
 	rip->version_recv =
 		yang_get_default_enum("%s/version/receive", RIP_INSTANCE);
+#endif /* FUZZING */
 
 	/* Initialize RIP data structures. */
 	rip->table = route_table_init();
@@ -3701,3 +3714,36 @@ void rip_init(void)
 
 	if_rmap_init(RIP_NODE);
 }
+
+#ifdef FUZZING
+/* Fuzzing helper function to process RIP packets */
+void rip_fuzz_process_packet(struct rip *rip, struct rip_packet *packet,
+			      int len, struct sockaddr_in *from,
+			      struct connected *ifc)
+{
+	struct rip_interface *ri = ifc->ifp->info;
+
+	/* Basic validation */
+	if (len < RIP_PACKET_MINSIZ || len > RIP_PACKET_MAXSIZ)
+		return;
+
+	/* RIP version adjust */
+	if (packet->version > RIPv2)
+		packet->version = RIPv2;
+	if (packet->version == 0)
+		return;
+
+	/* Process each command */
+	switch (packet->command) {
+	case RIP_RESPONSE:
+		rip_response_process(packet, len, from, ifc);
+		break;
+	case RIP_REQUEST:
+	case RIP_POLL:
+		rip_request_process(packet, len, from, ifc);
+		break;
+	default:
+		break;
+	}
+}
+#endif /* FUZZING */
