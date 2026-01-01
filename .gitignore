@@ -123,3 +123,4 @@ pceplib/test/*.trs
 **/profraw/
 **/crashes_and_corpus/
 **/fuzz.log
+*.csv

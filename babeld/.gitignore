@@ -5,4 +5,5 @@
 !Makefile
 !subdir.am
 !.gitignore
+!*.sh
 *_clippy.c
