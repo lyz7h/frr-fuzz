@@ -13,8 +13,14 @@ FUZZ_DURATION=86400              # Total fuzz duration in seconds (24 hours)
 INITIAL_PHASE_DURATION=600       # First phase duration in seconds (10 minutes)
 INITIAL_INTERVAL=60              # Coverage interval during first phase (1 minute)
 NORMAL_INTERVAL=600              # Coverage interval after first phase (10 minutes)
-OUTPUT_CSV="coverage_report.csv"
 BINARY_PATH=".libs/bgpd"
+
+# Generate timestamp and protocol name
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+PROTOCOL_NAME="bgpd"
+OUTPUT_DIR="/home/frr/MfsmFuzz/experiment/coverage/ossfuzz"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_CSV="$OUTPUT_DIR/coverage_report_${PROTOCOL_NAME}_${TIMESTAMP}.csv"
 
 # Clean up previous runs
 rm -rf profraw
@@ -31,6 +37,7 @@ echo "timestamp,lines_hit,lines_total,lines_percent,functions_hit,functions_tota
 
 # Function to collect coverage
 collect_coverage() {
+    find "$SCRIPT_DIR" -name "crash-*" -delete
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     
     cd "$SCRIPT_DIR/profraw"
@@ -93,7 +100,7 @@ collect_coverage() {
     fi
     
     # Write to CSV
-    echo "$timestamp,$lines_hit,$lines_total,$lines_percent,$functions_hit,$functions_total,$functions_percent,$branches_hit,$branches_total,$branches_percent" >> "$SCRIPT_DIR/$OUTPUT_CSV"
+    echo "$timestamp,$lines_hit,$lines_total,$lines_percent,$functions_hit,$functions_total,$functions_percent,$branches_hit,$branches_total,$branches_percent" >> "$OUTPUT_CSV"
     
     echo "[$timestamp] Coverage collected - Lines: $lines_hit/$lines_total ($lines_percent%), Functions: $functions_hit/$functions_total ($functions_percent%)"
     
